@@ -14,6 +14,7 @@ ANIMATION_SPEED = 0.1
 JUMP_POWER = 17 
 ANIMATION_FRAME_RATE = 1/60
 SHOOT_COOLDOWN_FRAME = 90
+PLAYER_SPAWN_POS = (800, 650)
 
 #Bullet Constants
 
@@ -73,6 +74,8 @@ class Bunny(Character):
         super().__init__(x, y, 'bunny1')
         self.bullets = []
         self.shoot_cooldown = 0
+        self.actor.x = x
+        self.actor.y = y
 
     def shoot(self):
         if self.shoot_cooldown <= 0:
@@ -92,24 +95,43 @@ class Bunny(Character):
                bullet.update()
                if bullet.actor.x > WIDTH or bullet.actor.x < 0:
                    self.bullets.remove(bullet)
-               if bullet.check_collision(game.enemy1):
-                   game.game_win()               
-                   self.bullets.remove(bullet)
+                   
+               for enemy in game.enemyList:                
+                  if bullet.check_collision(enemy):                                
+                    self.bullets.remove(bullet)     
+                    index = game.enemyList.index(enemy)                             
+                    del game.enemyList[index]
+
+               if len(game.enemyList) == 0:
+                    game.game_win()        
 
 class Enemy(Character):
+    patrolX1 = 0
+    patrolX2 = 0
+    patrolY1 = 0
+    patrolY2 = 0
+
     def __init__(self, x, y):
         super().__init__(x, y, 'enemy')       
     
     def update(self):
-        game.enemy1.animation_timer += 1/60
+        self.animation_timer += 1/60
         self.animate_walk()
 
+    def set_partol_position(self, patrolX1,patrolY1, patrolX2, patrolY2):
+        self.patrolX1 = patrolX1
+        self.patrolX2 = patrolX2
+        self.patrolY1 = patrolY1
+        self.patrolY2 = patrolY2
+
+        self.partol()
+
     def partol(self):
-        animate(self.actor, pos=(500 + 400, 300), duration=3, tween='linear', on_finished=self.partol_back)
+        animate(self.actor, pos=(self.patrolX2, self.patrolY2), duration=3, tween='linear', on_finished=self.partol_back)
         self.facing = 1
 
     def partol_back(self):
-        animate(self.actor, pos=(500, 300), duration=3, tween='linear', on_finished=self.partol)    
+        animate(self.actor, pos=(self.patrolX1, self.patrolY1), duration=3, tween='linear', on_finished=self.partol)    
         self.facing = -1
 
 class Bullet:
@@ -148,25 +170,40 @@ class GameState(Enum):
 class GameController:
     def __init__(self):
         self.is_acitve_sound = True
+        self.enemyList = []
+        self.grounds = []
+        self.bunny = None
+        self.game_state = GameState.MAINMENU          
+       
+        self.spawnButtons()       
+        self.main_menu()     
+
+    def spawn_level(self):
         self.spawn_characters()       
         self.set_environment()
-        self.spawnButtons()
-        self.game_state = GameState.MAINMENU   
-        self.main_menu()
 
     def spawn_characters(self):
-        self.bunny = Bunny(600, 650)
-        self.enemy1 = Enemy(500, 300)
-        self.enemy1.partol()
+        self.bunny = Bunny(PLAYER_SPAWN_POS[0], PLAYER_SPAWN_POS[1])  
+
+        self.enemy1 = Enemy(600, 300)
+        self.enemy1.set_partol_position(600, 300, 950, 300)  
+
+        self.enemy2 = Enemy(100, 300)      
+        self.enemy2.set_partol_position(50, 300, 350, 300)  
+
+        self.enemyList.append(self.enemy1)
+        self.enemyList.append(self.enemy2)
     
     def set_environment(self):
-        self.bg = Actor('bg_layer2', (500, 550))
+        self.bg = Actor('bg_layer2', (0, 0))
+        self.bg._rect.left = 0
 
         self.grounds = [
-            Actor('ground_grass', pos=(1300, 700)),
-            Actor('ground_grass', pos=(100, 700)),
-            Actor('ground_grass', pos=(750, 800)),
-            Actor('ground_grass', pos=(700, 450))
+            Actor('ground_grass', pos=(1500, 700)),
+            Actor('ground_grass', pos=(200, 700)),
+            Actor('ground_grass', pos=(850, 800)),
+            Actor('ground_grass', pos=(800, 450)),
+            Actor('ground_grass', pos=(200, 450))
         ]
     
     def spawnButtons(self):
@@ -176,18 +213,37 @@ class GameController:
         self.sound_on_img = Actor('sound_on.png', pos=(100, 100))
         self.sound_off_img = Actor('sound_off.png', pos=(100, 100))
 
+    def clear_level(self):     
+        for enemy in self.enemyList:
+            del enemy
+        
+        if self.grounds is not None:  
+          for ground in self.grounds:
+              del ground
+        
+        if self.bunny is not None:  
+         for bullet in self.bunny.bullets:
+             del bullet        
+         del self.bunny    
+        
+        self.enemyList.clear()
+        self.grounds.clear()
+        
     def play_game(self):
-        self.game_state = GameState.GAMEPLAY
-        self.bunny.actor.pos = (600, 650)
+        self.game_state = GameState.GAMEPLAY   
+        self.clear_level()   
+        self.spawn_level()
         music.stop()
         music.play('game_theme')
 
     def game_over(self):
         self.game_state = GameState.GAMEOVER    
+       # self.delete_level()
         music.stop()
 
     def game_win(self):
         self.game_state = GameState.GAMEWIN
+      #  self.delete_level()
         music.stop()
         music.play('game_win_theme')        
 
@@ -219,62 +275,69 @@ class GameController:
 game = GameController()
 
 def update():
-    game.enemy1.update()
+    if game.game_state == GameState.GAMEPLAY:
+        game_update()
+
+def game_update():
+    for enemy in game.enemyList:
+        enemy.update()
+   
     game.bunny.update()
 
     bunny_delta_x = 0
     bunny_delta_y = 0
 
-    if keyboard.left:
-        bunny_delta_x = -MOVEMENT_SPEED
-        game.bunny.animate_walk()
-        game.bunny.set_direction(-1)
-    elif keyboard.right:       
-        bunny_delta_x = MOVEMENT_SPEED
-        game.bunny.animate_walk()
-        game.bunny.set_direction(1)
-    else:
-        game.bunny.animate_idle()
-    
-    if keyboard.F:
-        game.bunny.shoot()
+    if game.game_state == GameState.GAMEPLAY:
+      if keyboard.left:
+          bunny_delta_x = -MOVEMENT_SPEED
+          game.bunny.animate_walk()
+          game.bunny.set_direction(-1)
+      elif keyboard.right:       
+          bunny_delta_x = MOVEMENT_SPEED
+          game.bunny.animate_walk()
+          game.bunny.set_direction(1)
+      else:
+          game.bunny.animate_idle()
 
-    if keyboard.space and not game.bunny.is_jumping:
-        game.play_jump_sound()    
-        bunny_delta_y = -JUMP_POWER
-        game.bunny.velocity_y -= JUMP_POWER
-        game.bunny.is_jumping = True
-        game.bunny.actor.image = game.bunny.JUMP      
-   
-    game.bunny.velocity_y += 0.5
-    bunny_delta_y += 0.5
+      if keyboard.F:
+          game.bunny.shoot()
+     
+      if keyboard.space and not game.bunny.is_jumping:
+          game.play_jump_sound()    
+          bunny_delta_y = -JUMP_POWER
+          game.bunny.velocity_y -= JUMP_POWER
+          game.bunny.is_jumping = True
+          game.bunny.actor.image = game.bunny.JUMP      
+     
+      game.bunny.velocity_y += 0.5
+      bunny_delta_y += 0.5
+     
+      for gorund in game.grounds:   
+          if gorund.colliderect(game.bunny.rect.x + bunny_delta_x, game.bunny.rect.y - 5,
+                                game.bunny.rect.width, game.bunny.rect.height):
+             bunny_delta_x = 0
+          if gorund.colliderect(game.bunny.rect.x, game.bunny.rect.y + bunny_delta_y, 
+                                game.bunny.rect.width, game.bunny.rect.height):
+              if game.bunny.velocity_y >= 0:
+                  if gorund.top - game.bunny.rect.top > 0:
+                      game.bunny.set_trasnform_bottom(gorund.top)
+                      game.bunny.velocity_y = 0                 
+                      game.bunny.is_jumping = False
+                  #   print('hit the ground')
+              if game.bunny.velocity_y < 0:
+                  if gorund.top - game.bunny.rect.top <= 0:
+                      game.bunny.set_trasnform_top(gorund.bottom)                     
+                      game.bunny.velocity_y = 0    
+                  #   print('bumped their head')
 
-    for gorund in game.grounds:   
-        if gorund.colliderect(game.bunny.rect.x + bunny_delta_x, game.bunny.rect.y - 5,
-                              game.bunny.rect.width, game.bunny.rect.height):
-           bunny_delta_x = 0
-        if gorund.colliderect(game.bunny.rect.x, game.bunny.rect.y + bunny_delta_y, 
-                              game.bunny.rect.width, game.bunny.rect.height):
-            if game.bunny.velocity_y >= 0:
-                if gorund.top - game.bunny.rect.top > 0:
-                    game.bunny.set_trasnform_bottom(gorund.top)
-                    game.bunny.velocity_y = 0                 
-                    game.bunny.is_jumping = False
-                #   print('hit the ground')
-            if game.bunny.velocity_y < 0:
-                if gorund.top - game.bunny.rect.top <= 0:
-                    game.bunny.set_trasnform_top(gorund.bottom)                     
-                    game.bunny.velocity_y = 0    
-                #   print('bumped their head')
-
-    game.bunny.move(bunny_delta_x, bunny_delta_y + game.bunny.velocity_y)
-
-    if game.bunny.rect.colliderect(game.enemy1.rect):  
-        if(GameState.GAMEPLAY):        
-            game.game_over()
-
-    if game.bunny.rect.y > HEIGHT:
-        game.game_over()
+      game.bunny.move(bunny_delta_x, bunny_delta_y + game.bunny.velocity_y)
+     
+      for enemy in game.enemyList:
+          if enemy.actor.colliderect(game.bunny.rect):
+              game.game_over()   
+     
+      if game.bunny.rect.y > HEIGHT:
+          game.game_over()
 
 def draw():
     screen.clear()   
@@ -286,13 +349,18 @@ def draw():
         if game.is_acitve_sound:         
             game.sound_on_img.draw()
         else:           
-            game.sound_off_img.draw()            
+            game.sound_off_img.draw()   
+
+        screen.draw.text('Press F for shoot!', pos=(WIDTH / 2 - 150, HEIGHT / 2 - 150),
+                          color = (255,255,255), fontsize = 50)
+        screen.draw.text('Press Space for jump!', pos=(WIDTH / 2 -150, HEIGHT / 2 - 100),
+                          color = (255,255,255), fontsize = 50)        
        
     if game.game_state == GameState.GAMEPLAY:          
         game.bg.draw() 
         game.bunny.draw()
-        game.enemy1.draw()
-
+        for enemy in game.enemyList:
+            enemy.draw()       
         for gorund in game.grounds:
             gorund.draw()
         for bullet in game.bunny.bullets:
